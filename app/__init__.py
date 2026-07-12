@@ -1,0 +1,1 @@
+"""Lyrics alignment service."""

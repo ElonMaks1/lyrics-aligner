@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Edit Visual — слова</title>
+  <style>
+    :root {
+      --bg: #07070a; --panel: #12121a; --accent2: #33ddff;
+      --text: #f4f4f8; --muted: #8b92a8; --border: #252532;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: "Segoe UI", system-ui, sans-serif;
+      background: radial-gradient(900px 600px at 20% -10%, #2a1030 0%, var(--bg) 55%);
+      color: var(--text); min-height: 100vh;
+    }
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 24px 16px 40px; }
+    h1 { margin: 0 0 6px; font-size: 1.5rem; }
+    .sub { color: var(--muted); margin-bottom: 18px; font-size: 0.9rem; }
+    .sub a { color: var(--accent2); }
+    .controls {
+      display: flex; flex-wrap: wrap; gap: 10px; align-items: end;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 14px; padding: 14px; margin-bottom: 16px;
+    }
+    label { font-size: 0.78rem; color: var(--muted); display: block; margin-bottom: 4px; }
+    select, button {
+      font: inherit; border-radius: 10px; border: 1px solid var(--border);
+      background: #0c0c12; color: var(--text); padding: 9px 12px;
+    }
+    select { min-width: 200px; }
+    button { cursor: pointer; background: linear-gradient(135deg, #ff3366, #cc2266); border: none; font-weight: 600; }
+    button.secondary { background: #1a1a28; border: 1px solid var(--border); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .meta { font-size: 0.82rem; color: var(--muted); flex: 1; min-width: 180px; }
+    .stage-wrap { display: flex; justify-content: center; }
+    .stage {
+      position: relative; width: min(100%, 960px); aspect-ratio: 16 / 9;
+      border-radius: 14px; overflow: hidden; background: #000;
+      box-shadow: 0 24px 80px #000a, 0 0 0 1px #ffffff12;
+    }
+    .stage-bg {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      object-fit: cover; filter: contrast(1.1) saturate(1.12) brightness(0.78);
+    }
+    .stage-vignette {
+      position: absolute; inset: 0; pointer-events: none;
+      background: radial-gradient(ellipse at center, transparent 35%, #000000aa 100%);
+    }
+    .stage-grain {
+      position: absolute; inset: 0; pointer-events: none; opacity: 0.12;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      mix-blend-mode: overlay;
+    }
+    .edit-layer {
+      position: absolute; inset: 0; padding: 5% 6%;
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden; pointer-events: none;
+    }
+
+    /* —— сборка строки: фиксированные зоны чуть выше центра —— */
+    .line-build {
+      position: absolute;
+      max-width: 88%;
+      display: flex; flex-wrap: nowrap; align-items: center;
+      gap: 0.28em 0.42em;
+      max-height: 20%;
+      overflow: hidden;
+      white-space: nowrap;
+      transform-origin: center top;
+      opacity: 0;
+      animation: lineReveal 0.35s ease-out forwards;
+    }
+    .line-build.slot-left   { top: 26%; left: 6%;  justify-content: flex-start; text-align: left; }
+    .line-build.slot-center { top: 28%; left: 50%; width: 84%; max-width: 84%; transform: translateX(-50%); justify-content: center; text-align: center; }
+    .line-build.slot-right  { top: 30%; right: 6%; left: auto; justify-content: flex-end; text-align: right; }
+    .line-build.slot-left-2   { top: 36%; left: 8%;  justify-content: flex-start; text-align: left; }
+    .line-build.slot-center-2 { top: 38%; left: 50%; width: 84%; max-width: 84%; transform: translateX(-50%); justify-content: center; text-align: center; }
+    .line-build.slot-right-2  { top: 40%; right: 8%; left: auto; justify-content: flex-end; text-align: right; }
+
+    .line-build .w {
+      display: inline-block; flex-shrink: 0; white-space: nowrap;
+      color: #fff; font-weight: 900;
+      line-height: 1.08; letter-spacing: -0.02em;
+      text-shadow: 0 0 20px rgba(0,0,0,0.95), 0 3px 10px rgba(0,0,0,1);
+      -webkit-text-stroke: 1px rgba(0,0,0,0.85);
+      paint-order: stroke fill;
+      opacity: 0;
+      animation: wordReveal 0.28s cubic-bezier(.2,.9,.2,1) forwards;
+    }
+
+    @keyframes lineReveal {
+      from { opacity: 0; filter: blur(6px); }
+      to   { opacity: 1; filter: blur(0); }
+    }
+    @keyframes wordReveal {
+      from { opacity: 0; transform: translateY(10px); filter: blur(3px); }
+      to   { opacity: 1; transform: translateY(0); filter: blur(0); }
+    }
+    @keyframes lineHide {
+      to { opacity: 0; filter: blur(8px); }
+    }
+    .line-build.line-out { animation: lineHide 0.3s ease-in forwards; }
+
+    /* —— режим «одно слово» —— */
+    .flash-wrap {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      padding: 5% 7%; overflow: hidden;
+      transform-origin: center center;
+    }
+    .flash-wrap.preparing { visibility: hidden; }
+    .flash-word {
+      max-width: 100%; max-height: 100%; margin: 0; text-align: center;
+      color: #fff; font-weight: 900; line-height: 1;
+      text-shadow: 0 0 24px rgba(0,0,0,0.95), 0 4px 14px rgba(0,0,0,1);
+      -webkit-text-stroke: 1.2px rgba(0,0,0,0.9);
+      paint-order: stroke fill;
+    }
+
+    /* enter words */
+    @keyframes wPop {
+      0% { opacity: 0; transform: scale(0.1); }
+      70% { opacity: 1; transform: scale(1.2); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+    @keyframes wSlam {
+      0% { opacity: 0; transform: translateY(-50px) scale(1.5); filter: blur(6px); }
+      60% { opacity: 1; transform: translateY(4px) scale(0.95); filter: blur(0); }
+      100% { transform: translateY(0) scale(1); }
+    }
+    @keyframes wWhipL {
+      0% { opacity: 0; transform: translateX(-80px) skewX(-10deg); }
+      100% { opacity: 1; transform: translateX(0) skewX(0); }
+    }
+    @keyframes wWhipR {
+      0% { opacity: 0; transform: translateX(80px) skewX(10deg); }
+      100% { opacity: 1; transform: translateX(0) skewX(0); }
+    }
+    @keyframes wZoom {
+      0% { opacity: 0; transform: scale(3); filter: blur(10px); }
+      100% { opacity: 1; transform: scale(1); filter: blur(0); }
+    }
+    @keyframes wFlip {
+      0% { opacity: 0; transform: rotateY(90deg); }
+      100% { opacity: 1; transform: rotateY(0); }
+    }
+    @keyframes wStretch {
+      0% { opacity: 0; transform: scaleX(2.5) scaleY(0.3); }
+      100% { opacity: 1; transform: scaleX(1) scaleY(1); }
+    }
+    @keyframes wGlitch {
+      0% { opacity: 0; clip-path: inset(0 0 100% 0); }
+      25% { opacity: 1; clip-path: inset(10% 0 50% 0); transform: translateX(3px); }
+      50% { clip-path: inset(40% 0 20% 0); transform: translateX(-4px); }
+      100% { opacity: 1; clip-path: inset(0); transform: translateX(0); }
+    }
+    @keyframes wChroma {
+      0% { opacity: 0; transform: scale(0.5); }
+      40% { opacity: 1; text-shadow: -3px 0 #f005, 3px 0 #0ff5, 0 3px 10px #000; }
+      100% { opacity: 1; transform: scale(1); text-shadow: 0 0 20px rgba(0,0,0,0.95), 0 3px 10px #000; }
+    }
+    @keyframes wFlash {
+      0% { opacity: 0; filter: brightness(4); }
+      40% { opacity: 1; filter: brightness(2); }
+      100% { opacity: 1; filter: brightness(1); }
+    }
+    @keyframes wDrop {
+      0% { opacity: 0; transform: translateY(-60px) scale(1.2); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes wSpin {
+      0% { opacity: 0; transform: rotate(-120deg) scale(0.2); }
+      100% { opacity: 1; transform: rotate(0) scale(1); }
+    }
+
+    /* line / flash block transitions */
+    @keyframes lineIn {
+      0% { opacity: 0; transform: scale(0.92); filter: blur(8px); }
+      100% { opacity: 1; transform: scale(1); filter: blur(0); }
+    }
+    @keyframes lineOut {
+      to { opacity: 0; transform: scale(1.08); filter: blur(10px); }
+    }
+    @keyframes blockOut {
+      to { opacity: 0; transform: scale(0.85); filter: blur(8px); }
+    }
+
+    .line-in  { animation: lineIn 0.28s ease-out both; }
+    .block-out{ animation: blockOut 0.3s ease-in forwards; }
+
+    .timebar { margin-top: 14px; text-align: center; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 0.85rem; }
+    .error { color: #f87171; margin-top: 8px; font-size: 0.85rem; }
+    .warn { color: #fbbf24; margin-top: 8px; font-size: 0.85rem; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Edit Visual</h1>
+    <p class="sub">Word-level · 16:9 · <a href="/">← Aligner</a></p>
+
+    <div class="controls">
+      <div>
+        <label>Трек</label>
+        <select id="trackSelect"><option>…</option></select>
+      </div>
+      <div>
+        <label>Стиль</label>
+        <select id="modeSelect">
+          <option value="build">Сборка строки (edit)</option>
+          <option value="flash">Одно слово</option>
+        </select>
+      </div>
+      <button type="button" id="prepareBtn" class="secondary" disabled>Фон YT</button>
+      <button type="button" id="playBtn" disabled>▶ Play</button>
+      <div class="meta" id="meta"></div>
+    </div>
+    <p class="error hidden" id="err"></p>
+    <p class="warn hidden" id="warn"></p>
+
+    <div class="stage-wrap">
+      <div class="stage">
+        <video class="stage-bg hidden" id="bgVideo" autoplay muted loop playsinline></video>
+        <img class="stage-bg hidden" id="bgGif" alt="" />
+        <div class="stage-vignette"></div>
+        <div class="stage-grain"></div>
+        <div class="edit-layer" id="editLayer"></div>
+      </div>
+    </div>
+    <div class="timebar" id="timebar">0:00 / 0:00</div>
+  </div>
+  <audio id="audio" preload="auto"></audio>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const trackSelect = $("trackSelect");
+    const modeSelect = $("modeSelect");
+    const prepareBtn = $("prepareBtn");
+    const playBtn = $("playBtn");
+    const meta = $("meta");
+    const errEl = $("err");
+    const warnEl = $("warn");
+    const audio = $("audio");
+    const bgVideo = $("bgVideo");
+    const bgGif = $("bgGif");
+    const editLayer = $("editLayer");
+    const timebar = $("timebar");
+
+    let tracks = [], data = { lines: [] };
+    let playing = false, raf = 0;
+    let lineEl = null, lineIdx = -1, chunkIdx = -1;
+    let shownWords = new Set();
+    let flashEl = null, flashKey = -1;
+    const chunkCache = new Map();
+
+    const MAX_WORDS_ON_SCREEN = 5;
+    const PREPOSITIONS = new Set([
+      "в","во","на","с","со","к","ко","у","о","об","обо","от","ото","до","для","без","про",
+      "по","за","из","изо","из-","под","над","при","через","между","перед","передо","около",
+      "вокруг","среди","вместо","вне","после","сквозь","мимо","ради","близ","вдоль","поперёк",
+      "in","on","at","to","for","of","with","by","from","into","onto","upon","about","over",
+      "under","after","before","between","through","during","without","within","off","out","up",
+      "as","per","via","vs","versus",
+    ]);
+    const LINE_SLOTS = ["slot-left", "slot-center", "slot-right"];
+    const CHUNK2_SLOTS = ["slot-left-2", "slot-center-2", "slot-right-2"];
+    const FLASH_IN = ["line-in"];
+    const FLASH_OUT = ["block-out"];
+
+    function wordStem(text) {
+      return text.toLowerCase().replace(/^[^\wа-яё]+|[^\wа-яё]+$/gi, "");
+    }
+
+    function isPreposition(text) {
+      const w = wordStem(text);
+      return w.length > 0 && PREPOSITIONS.has(w);
+    }
+
+    function buildWordChunks(words) {
+      const chunks = [];
+      let i = 0;
+      while (i < words.length) {
+        let take = Math.min(MAX_WORDS_ON_SCREEN, words.length - i);
+        while (
+          take > 1 &&
+          i + take < words.length &&
+          isPreposition(words[i + take - 1].text)
+        ) {
+          take--;
+        }
+        if (take < 1) take = 1;
+        chunks.push(words.slice(i, i + take));
+        i += take;
+      }
+      return chunks;
+    }
+
+    function getChunks(lineIndex) {
+      if (!chunkCache.has(lineIndex)) {
+        const words = data.lines[lineIndex]?.words || [];
+        chunkCache.set(lineIndex, buildWordChunks(words));
+      }
+      return chunkCache.get(lineIndex);
+    }
+
+    function chunkOffset(chunks, chunkIndex) {
+      let off = 0;
+      for (let i = 0; i < chunkIndex; i++) off += chunks[i].length;
+      return off;
+    }
+
+    function findChunkForWord(chunks, wordIndex) {
+      let off = 0;
+      for (let ci = 0; ci < chunks.length; ci++) {
+        if (wordIndex < off + chunks[ci].length) return ci;
+        off += chunks[ci].length;
+      }
+      return Math.max(0, chunks.length - 1);
+    }
+
+    function lineSlotClass(lineIndex, chunk) {
+      const slots = chunk > 0 ? CHUNK2_SLOTS : LINE_SLOTS;
+      return slots[lineIndex % slots.length];
+    }
+
+    function fitChunkFontSize(lineEl, chunkWords) {
+      const isCenter =
+        lineEl.classList.contains("slot-center") ||
+        lineEl.classList.contains("slot-center-2");
+      const maxW = editLayer.clientWidth * (isCenter ? 0.84 : 0.88);
+      const maxH = editLayer.clientHeight * 0.18;
+
+      const probe = document.createElement("div");
+      probe.className = lineEl.className;
+      probe.style.visibility = "hidden";
+      probe.style.position = "absolute";
+      probe.style.pointerEvents = "none";
+      probe.style.opacity = "0";
+      probe.style.animation = "none";
+      chunkWords.forEach((w) => {
+        const s = document.createElement("span");
+        s.className = "w";
+        s.style.animation = "none";
+        s.style.opacity = "1";
+        s.textContent = w.text;
+        probe.appendChild(s);
+      });
+      editLayer.appendChild(probe);
+
+      let lo = 20;
+      let hi = 68;
+      while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2);
+        probe.style.fontSize = mid + "px";
+        if (probe.scrollWidth <= maxW && probe.scrollHeight <= maxH) lo = mid;
+        else hi = mid - 1;
+      }
+      lineEl.style.fontSize = lo + "px";
+      probe.remove();
+    }
+
+    function fmt(t) {
+      const m = Math.floor(t / 60), s = Math.floor(t % 60);
+      return `${m}:${String(s).padStart(2, "0")}`;
+    }
+    function showMsg(el, msg) {
+      el.textContent = msg || "";
+      el.classList.toggle("hidden", !msg);
+    }
+
+    function fitFlash(el) {
+      const maxW = editLayer.clientWidth * 0.9;
+      const maxH = editLayer.clientHeight * 0.85;
+      let lo = 24, hi = Math.floor(Math.min(maxW, maxH * 0.9));
+      while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2);
+        el.style.fontSize = mid + "px";
+        if (el.scrollWidth <= maxW && el.scrollHeight <= maxH) lo = mid;
+        else hi = mid - 1;
+      }
+      el.style.fontSize = lo + "px";
+    }
+
+    function findLineIndex(t) {
+      let idx = -1;
+      for (let i = 0; i < data.lines.length; i++) {
+        const ln = data.lines[i];
+        if (t >= ln.start - 0.03 && t <= ln.end + 0.12) idx = i;
+      }
+      return idx;
+    }
+
+    function findFlashWord(t) {
+      let key = -1;
+      let flat = 0;
+      for (let li = 0; li < data.lines.length; li++) {
+        for (let wi = 0; wi < (data.lines[li].words || []).length; wi++) {
+          const w = data.lines[li].words[wi];
+          if (t >= w.start - 0.02 && t <= w.end + 0.06) key = flat;
+          flat++;
+        }
+      }
+      return key;
+    }
+
+    function allWordsFlat() {
+      const out = [];
+      for (const ln of data.lines) for (const w of ln.words || []) out.push(w);
+      return out;
+    }
+
+    function clearEdit() {
+      editLayer.innerHTML = "";
+      lineEl = null; lineIdx = -1; chunkIdx = -1;
+      shownWords.clear();
+      chunkCache.clear();
+      flashEl = null; flashKey = -1;
+    }
+
+    function ensureChunk(li, chunk) {
+      if (li < 0) {
+        if (lineEl) {
+          lineEl.classList.add("line-out");
+          const old = lineEl;
+          setTimeout(() => old.remove(), 280);
+        }
+        lineEl = null;
+        lineIdx = -1;
+        chunkIdx = -1;
+        shownWords.clear();
+        return;
+      }
+
+      if (li === lineIdx && chunk === chunkIdx && lineEl) return;
+
+      if (lineEl) {
+        lineEl.classList.add("line-out");
+        const old = lineEl;
+        setTimeout(() => old.remove(), 280);
+      }
+
+      lineIdx = li;
+      chunkIdx = chunk;
+      lineEl = null;
+      shownWords.clear();
+
+      if (li < 0) return;
+
+      const chunks = getChunks(li);
+      const chunkWords = chunks[chunk] || [];
+      if (!chunkWords.length) return;
+
+      lineEl = document.createElement("div");
+      lineEl.className = "line-build " + lineSlotClass(li, chunk);
+      editLayer.appendChild(lineEl);
+      fitChunkFontSize(lineEl, chunkWords);
+    }
+
+    function spawnWord(li, wi, word) {
+      const key = li + ":" + wi;
+      if (shownWords.has(key) || !lineEl) return;
+      shownWords.add(key);
+      const span = document.createElement("span");
+      span.className = "w";
+      span.style.animationDelay = "0ms";
+      span.textContent = word.text;
+      lineEl.appendChild(span);
+    }
+
+    function showFlashWord(flatIdx) {
+      if (flatIdx === flashKey) return;
+      if (flashEl) {
+        flashEl.classList.add("block-out");
+        const old = flashEl;
+        setTimeout(() => old.remove(), 300);
+      }
+      flashKey = flatIdx;
+      if (flatIdx < 0) { flashEl = null; return; }
+      const words = allWordsFlat();
+      const word = words[flatIdx];
+      if (!word) return;
+
+      const wrap = document.createElement("div");
+      wrap.className = "flash-wrap preparing";
+      const el = document.createElement("p");
+      el.className = "flash-word";
+      el.textContent = word.text;
+      wrap.appendChild(el);
+      editLayer.appendChild(wrap);
+      fitFlash(el);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          wrap.classList.remove("preparing");
+          wrap.classList.add("line-in");
+        });
+      });
+      flashEl = wrap;
+    }
+
+    function syncBuild(t) {
+      const idx = findLineIndex(t);
+      if (idx < 0) {
+        ensureChunk(-1, 0);
+        return;
+      }
+
+      const words = data.lines[idx].words || [];
+      const chunks = getChunks(idx);
+      let lastStarted = -1;
+      for (let wi = 0; wi < words.length; wi++) {
+        if (t >= words[wi].start - 0.02) lastStarted = wi;
+      }
+      if (lastStarted < 0) {
+        if (lineIdx !== idx) ensureChunk(-1, 0);
+        return;
+      }
+
+      const chunk = findChunkForWord(chunks, lastStarted);
+      ensureChunk(idx, chunk);
+
+      const globalStart = chunkOffset(chunks, chunk);
+      const chunkWords = chunks[chunk];
+      for (let wi = 0; wi < chunkWords.length; wi++) {
+        const gi = globalStart + wi;
+        if (t >= words[gi].start - 0.02) spawnWord(idx, gi, words[gi]);
+      }
+    }
+
+    function syncFlash(t) {
+      showFlashWord(findFlashWord(t));
+    }
+
+    function sync(t) {
+      if (modeSelect.value === "flash") syncFlash(t);
+      else syncBuild(t);
+    }
+
+    async function loadTracks() {
+      const res = await fetch("/api/experiment/tracks");
+      tracks = (await res.json()).tracks || [];
+      trackSelect.innerHTML = tracks.length
+        ? tracks.map((t) => `<option value="${t.id}">${t.name}</option>`).join("")
+        : `<option value="">Нет треков</option>`;
+      if (tracks.length) await selectTrack(tracks[0].id);
+    }
+
+    function currentTrack() { return tracks.find((t) => t.id === trackSelect.value); }
+
+    function updateMeta(track) {
+      if (!track) return;
+      meta.textContent = [
+        track.has_words ? `${track.words} слов` : "нет words.json",
+        track.has_audio ? "✓ audio" : "✗ mp3",
+        track.has_background ? "✓ фон" : "✗ фон",
+      ].join(" · ");
+      prepareBtn.disabled = !track.youtube_url;
+      playBtn.disabled = !track.has_audio || !track.has_words;
+      showMsg(warnEl, track.needs_align
+        ? "Запусти experiment_align.bat — нужен .words.json"
+        : !track.has_words ? "Нет word-таймингов" : "");
+    }
+
+    async function selectTrack(id) {
+      stopPlayback();
+      showMsg(errEl, "");
+      const track = tracks.find((t) => t.id === id);
+      if (!track) return;
+
+      try {
+        const res = await fetch(`/api/experiment/tracks/${encodeURIComponent(id)}/words.json`);
+        if (res.ok) {
+          data = await res.json();
+          chunkCache.clear();
+        }
+        else {
+          data = { lines: [] };
+          showMsg(errEl, "Нужен .words.json — experiment_align.bat");
+        }
+      } catch (e) { showMsg(errEl, String(e)); }
+
+      audio.src = track.has_audio
+        ? `/api/experiment/tracks/${encodeURIComponent(id)}/audio` : "";
+
+      bgVideo.classList.add("hidden");
+      bgGif.classList.add("hidden");
+      if (track.background_webm) {
+        bgVideo.src = `/api/experiment/tracks/${encodeURIComponent(id)}/bg.webm?t=${Date.now()}`;
+        bgVideo.classList.remove("hidden");
+      } else if (track.background_gif) {
+        bgGif.src = `/api/experiment/tracks/${encodeURIComponent(id)}/bg.gif?t=${Date.now()}`;
+        bgGif.classList.remove("hidden");
+      }
+      updateMeta(track);
+    }
+
+    async function prepareBackground() {
+      const track = currentTrack();
+      if (!track) return;
+      prepareBtn.disabled = true;
+      prepareBtn.textContent = "…";
+      try {
+        const res = await fetch(`/api/experiment/tracks/${encodeURIComponent(track.id)}/prepare`, { method: "POST" });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.detail || "fail");
+        tracks = (await (await fetch("/api/experiment/tracks")).json()).tracks || [];
+        await selectTrack(track.id);
+      } catch (e) { showMsg(errEl, String(e.message || e)); }
+      finally { prepareBtn.textContent = "Фон YT"; prepareBtn.disabled = !currentTrack()?.youtube_url; }
+    }
+
+    function tick() {
+      if (!playing) return;
+      const t = audio.currentTime;
+      sync(t);
+      timebar.textContent = `${fmt(t)} / ${fmt(audio.duration || 0)}`;
+      raf = requestAnimationFrame(tick);
+    }
+
+    function stopPlayback() {
+      playing = false;
+      cancelAnimationFrame(raf);
+      audio.pause();
+      audio.currentTime = 0;
+      clearEdit();
+      playBtn.textContent = "▶ Play";
+    }
+
+    async function togglePlay() {
+      const track = currentTrack();
+      if (!track?.has_audio || !track?.has_words) return;
+      if (playing) {
+        playing = false; audio.pause(); playBtn.textContent = "▶ Play";
+        cancelAnimationFrame(raf);
+        modeSelect.disabled = false;
+        return;
+      }
+      clearEdit();
+      modeSelect.disabled = true;
+      try {
+        await audio.play();
+        if (bgVideo.src) bgVideo.play().catch(() => {});
+        playing = true;
+        playBtn.textContent = "⏸ Pause";
+        tick();
+      } catch { showMsg(errEl, "Не удалось play"); }
+    }
+
+    audio.addEventListener("ended", () => { modeSelect.disabled = false; stopPlayback(); });
+    modeSelect.addEventListener("change", () => { if (!playing) clearEdit(); });
+    trackSelect.addEventListener("change", () => selectTrack(trackSelect.value));
+    prepareBtn.addEventListener("click", prepareBackground);
+    playBtn.addEventListener("click", togglePlay);
+
+    loadTracks().catch((e) => showMsg(errEl, String(e)));
+  </script>
+</body>
+</html>

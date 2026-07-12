@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Проверка синхронизации</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --panel: #171b26;
+      --accent: #a78bfa;
+      --text: #e8ecf4;
+      --muted: #9aa3b5;
+      --border: #2a3142;
+      --active-bg: #2e1064;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: radial-gradient(900px 500px at 90% -10%, #2e1064 0%, var(--bg) 50%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .wrap { max-width: 900px; margin: 0 auto; padding: 28px 20px 48px; }
+    h1 { margin: 0 0 8px; font-size: 1.6rem; }
+    .sub { color: var(--muted); margin-bottom: 20px; }
+    .sub a { color: var(--accent); }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 6px; }
+    input[type="file"] {
+      width: 100%;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #0f131c;
+      color: var(--text);
+      margin-bottom: 12px;
+    }
+    .sync-audio { width: 100%; margin: 12px 0; }
+    .sync-time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 0.9rem; }
+    .sync-lyrics {
+      max-height: 460px;
+      overflow-y: auto;
+      padding: 20px 16px;
+      background: #0b0e14;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      scroll-behavior: smooth;
+    }
+    .sync-line {
+      margin: 0 0 14px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      font-size: 1.25rem;
+      color: var(--muted);
+      opacity: 0.45;
+      transition: opacity 0.2s, transform 0.2s;
+    }
+    .sync-line.active {
+      opacity: 1;
+      color: var(--text);
+      background: var(--active-bg);
+      border: 1px solid #7c3aed55;
+      transform: scale(1.02);
+      font-weight: 600;
+    }
+    .sync-line.past { opacity: 0.3; }
+    .sync-line.upcoming { opacity: 0.55; }
+    .error { color: #f87171; margin-top: 8px; }
+    .meta { color: var(--muted); font-size: 0.85rem; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Проверка синхронизации</h1>
+    <p class="sub">
+      Загрузите трек и готовый файл таймкодов <strong>строк</strong> (.lines.json / .lrc / .srt).
+      <a href="/">← К выравниванию</a>
+    </p>
+
+    <section class="card">
+      <label>Аудио</label>
+      <input id="audioIn" type="file" accept="audio/*" />
+      <label>Таймкоды строк</label>
+      <input id="timingIn" type="file" accept=".json,.lrc,.srt,.vtt" />
+      <p class="meta" id="timingMeta">Форматы: .lines.json, .lrc, .srt</p>
+      <div id="error" class="error"></div>
+    </section>
+
+    <section class="card" id="playerCard" hidden>
+      <audio id="player" class="sync-audio" controls></audio>
+      <div class="sync-time" id="clock">00:00.00</div>
+      <div class="sync-lyrics" id="lyrics"></div>
+    </section>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let lines = [];
+    let lastScrolled = -1;
+    let rafId = null;
+
+    function fmtTime(sec) {
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return `${String(m).padStart(2, "0")}:${s.toFixed(2).padStart(5, "0")}`;
+    }
+
+    function renderLines() {
+      const box = $("lyrics");
+      box.innerHTML = "";
+      lines.forEach((line, i) => {
+        const el = document.createElement("div");
+        el.className = "sync-line";
+        el.dataset.index = String(i);
+        el.dataset.start = String(line.start);
+        el.dataset.end = String(line.end);
+        el.textContent = line.text;
+        box.appendChild(el);
+      });
+      $("playerCard").hidden = lines.length === 0;
+    }
+
+    function scrollToActive(activeEl) {
+      if (!activeEl) return;
+      const idx = Number(activeEl.dataset.index);
+      if (idx === lastScrolled) return;
+      lastScrolled = idx;
+      const box = $("lyrics");
+      const lineRect = activeEl.getBoundingClientRect();
+      const boxRect = box.getBoundingClientRect();
+      const delta = (lineRect.top + lineRect.height / 2) - (boxRect.top + boxRect.height / 2);
+      if (Math.abs(delta) > 24) box.scrollTop += delta;
+    }
+
+    function updateSync(t) {
+      const timed = [...document.querySelectorAll(".sync-line")];
+      let active = null;
+      for (const el of timed) {
+        const start = parseFloat(el.dataset.start);
+        const end = parseFloat(el.dataset.end);
+        el.classList.remove("active", "past", "upcoming");
+        if (t < start) el.classList.add("upcoming");
+        else if (t >= end) el.classList.add("past");
+        else { el.classList.add("active"); active = el; }
+      }
+      scrollToActive(active);
+    }
+
+    function tick() {
+      const p = $("player");
+      updateSync(p.currentTime);
+      $("clock").textContent = fmtTime(p.currentTime);
+      if (!p.paused) rafId = requestAnimationFrame(tick);
+    }
+
+    async function loadTimings(file) {
+      const fd = new FormData();
+      fd.append("timing", file);
+      const res = await fetch("/api/verify/parse", { method: "POST", body: fd });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      lines = data.lines || [];
+      $("timingMeta").textContent = `${file.name}: ${lines.length} строк`;
+      lastScrolled = -1;
+      renderLines();
+    }
+
+    async function tryLoad() {
+      $("error").textContent = "";
+      const audio = $("audioIn").files[0];
+      const timing = $("timingIn").files[0];
+      if (!audio || !timing) return;
+
+      $("player").src = URL.createObjectURL(audio);
+      try {
+        await loadTimings(timing);
+        $("player").onplay = () => tick();
+        $("player").onpause = () => { if (rafId) cancelAnimationFrame(rafId); };
+        $("player").onseeked = () => { lastScrolled = -1; updateSync($("player").currentTime); };
+      } catch (e) {
+        $("error").textContent = e.message || String(e);
+        lines = [];
+        renderLines();
+      }
+    }
+
+    $("audioIn").addEventListener("change", tryLoad);
+    $("timingIn").addEventListener("change", tryLoad);
+  </script>
+</body>
+</html>

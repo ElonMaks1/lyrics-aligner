@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lyrics Aligner</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --panel: #171b26;
+      --accent: #6ee7b7;
+      --accent2: #60a5fa;
+      --text: #e8ecf4;
+      --muted: #9aa3b5;
+      --border: #2a3142;
+      --danger: #f87171;
+      --active-bg: #1e3a5f;
+      --past: #5a6478;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: radial-gradient(1200px 600px at 10% -10%, #1a2740 0%, var(--bg) 55%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 28px 20px 48px; }
+    h1 { margin: 0 0 6px; font-size: 1.7rem; }
+    h2 { margin: 0 0 12px; font-size: 1.15rem; }
+    .sub { color: var(--muted); margin-bottom: 22px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+    }
+    label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 6px; }
+    input[type="file"], select, button, textarea {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #0f131c;
+      color: var(--text);
+      padding: 10px 12px;
+      font: inherit;
+    }
+    textarea { min-height: 280px; resize: vertical; line-height: 1.45; }
+    .row { display: flex; gap: 10px; margin-top: 10px; align-items: center; }
+    .row > * { flex: 1; }
+    .row label.inline { display: flex; align-items: center; gap: 8px; margin: 0; }
+    button {
+      cursor: pointer;
+      background: linear-gradient(135deg, #1f6feb, #2563eb);
+      border: none;
+      font-weight: 600;
+    }
+    button.secondary { background: #243044; }
+    button.sample { background: linear-gradient(135deg, #0d9488, #059669); }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    .status { margin-top: 16px; }
+    .pill {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      background: #243044;
+      margin-right: 6px;
+    }
+    .pill.done { background: #14532d; color: #bbf7d0; }
+    .pill.fail { background: #7f1d1d; color: #fecaca; }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .metric {
+      background: #0f131c;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+    }
+    .metric b { display: block; font-size: 1.1rem; color: var(--accent); }
+    pre {
+      background: #0b0e14;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      overflow: auto;
+      max-height: 200px;
+      font-size: 0.82rem;
+      line-height: 1.4;
+    }
+    .links a {
+      color: var(--accent2);
+      margin-right: 14px;
+      text-decoration: none;
+    }
+    .error { color: var(--danger); margin-top: 8px; }
+    .warn {
+      color: #fbbf24;
+      background: #422006;
+      border: 1px solid #854d0e;
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-top: 10px;
+      line-height: 1.45;
+    }
+    .player { width: 100%; margin-top: 8px; }
+
+    /* Karaoke preview */
+    .preview { margin-top: 16px; }
+    .preview[hidden] { display: none !important; }
+    .sync-audio { width: 100%; margin-bottom: 12px; }
+    .sync-time {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 10px;
+      font-variant-numeric: tabular-nums;
+    }
+    .sync-lyrics {
+      max-height: 420px;
+      overflow-y: auto;
+      padding: 20px 16px;
+      background: #0b0e14;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      scroll-behavior: smooth;
+    }
+    .sync-line {
+      margin: 0 0 14px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 1.2rem;
+      line-height: 1.5;
+      color: var(--past);
+      opacity: 0.45;
+      transition: opacity 0.2s, transform 0.2s, color 0.2s;
+    }
+    .sync-line.section {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      opacity: 0.7;
+      padding: 4px 14px;
+      margin-bottom: 6px;
+    }
+    .sync-line.instrumental {
+      font-style: italic;
+      opacity: 0.35;
+    }
+    .sync-line.upcoming { opacity: 0.55; color: var(--muted); }
+    .sync-line.active {
+      opacity: 1;
+      color: var(--text);
+      background: var(--active-bg);
+      border: 1px solid #2563eb55;
+      transform: scale(1.02);
+      font-weight: 600;
+    }
+    .sync-line.past { opacity: 0.35; }
+    .sync-line.no-time { opacity: 0.4; font-size: 1rem; }
+    .sync-word {
+      display: inline;
+      padding: 0 1px;
+      border-radius: 4px;
+      transition: background 0.1s, color 0.1s;
+    }
+    .sync-word.active-word {
+      background: var(--accent);
+      color: #0f1117;
+    }
+    .sync-line.active .sync-word.past-word { color: #a5b4fc; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Lyrics Aligner</h1>
+    <p class="sub">Demucs HQ → MMS alignment. <a href="/verify" style="color:#60a5fa">Проверка таймкодов →</a> · <a href="/experiment" style="color:#f472b6">Edit visual →</a> · Пакет: <code>batch_run.bat</code></p>
+    <p class="sub" id="gpuInfo">GPU: проверка…</p>
+
+    <div class="grid">
+      <section class="card">
+        <label>Аудио (mp3 / wav / flac)</label>
+        <input id="audio" type="file" accept="audio/*" />
+        <audio id="uploadPreview" class="player" controls hidden></audio>
+
+        <div class="row">
+          <div>
+            <label>Режим</label>
+            <select id="mode">
+              <option value="hq" selected>HQ — основной (htdemucs_ft)</option>
+              <option value="fast">Fast — htdemucs</option>
+              <option value="balanced">Balanced — htdemucs</option>
+            </select>
+          </div>
+          <div>
+            <label>Язык</label>
+            <select id="language">
+              <option value="mixed" selected>Русский + English (смешанный)</option>
+              <option value="ru">Русский</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+        </div>
+
+        <label style="margin-top:10px">
+          <input id="skipSep" type="checkbox" /> Пропустить separation (быстрее, хуже на миксе)
+        </label>
+
+        <div class="row" style="margin-top:14px">
+          <button id="runBtn">Синхронизировать</button>
+          <button id="sampleBtn" class="sample" type="button">Тест: Фазенда — Мужики</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <label>Текст песни</label>
+        <textarea id="lyrics" placeholder="Вставьте lyrics..."></textarea>
+        <button id="loadSampleLyrics" class="secondary" type="button" style="margin-top:8px">Загрузить текст образца</button>
+      </section>
+    </div>
+
+    <section class="card status">
+      <div id="statusLine"><span class="pill">idle</span></div>
+      <div id="stages"></div>
+      <div class="metrics" id="metrics" hidden></div>
+      <div class="links" id="links" hidden style="margin-top:12px"></div>
+      <details id="lrcDetails" hidden style="margin-top:12px">
+        <summary style="cursor:pointer;color:var(--accent2)">LRC текст</summary>
+        <pre id="preview"></pre>
+      </details>
+      <div id="warn" class="warn" hidden></div>
+      <div id="error" class="error"></div>
+    </section>
+
+    <section class="card preview" id="syncPreview" hidden>
+      <h2>Просмотр синхронизации</h2>
+      <audio id="syncAudio" class="sync-audio" controls></audio>
+      <div class="row">
+        <div class="sync-time" id="syncClock">00:00.00</div>
+        <label class="inline">
+          <input type="checkbox" id="wordMode" /> Подсветка слов (по умолчанию — строки)
+        </label>
+      </div>
+      <div class="sync-lyrics" id="syncLyrics"></div>
+    </section>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let pollTimer = null;
+    let syncData = null;
+    let syncLines = [];
+    let rafId = null;
+    let lastScrolledIndex = -1;
+
+    $("audio").addEventListener("change", (e) => {
+      const f = e.target.files[0];
+      const player = $("uploadPreview");
+      if (!f) { player.hidden = true; return; }
+      player.src = URL.createObjectURL(f);
+      player.hidden = false;
+    });
+
+    async function loadSampleLyrics() {
+      const res = await fetch("/api/sample");
+      const data = await res.json();
+      $("lyrics").value = data.lyrics || "";
+    }
+
+    function setStatus(text, cls = "") {
+      $("statusLine").innerHTML = `<span class="pill ${cls}">${text}</span>`;
+    }
+
+    function renderStages(stages) {
+      if (!stages) { $("stages").innerHTML = ""; return; }
+      $("stages").innerHTML = Object.entries(stages)
+        .map(([k, v]) => `<span class="pill ${v === 'done' ? 'done' : ''}">${k}: ${v}</span>`)
+        .join("");
+    }
+
+    function renderMetrics(q) {
+      if (!q) return;
+      $("metrics").hidden = false;
+      $("metrics").innerHTML = `
+        <div class="metric"><span>Coverage</span><b>${(q.percent_aligned_words || 0).toFixed(1)}%</b></div>
+        <div class="metric"><span>Confidence</span><b>${(q.average_confidence || 0).toFixed(2)}</b></div>
+        <div class="metric"><span>Line coverage</span><b>${((q.line_coverage || 0) * 100).toFixed(1)}%</b></div>
+        ${q.lines_recovered ? `<div class="metric"><span>Recovered</span><b>${q.lines_recovered} lines</b></div>` : ""}`;
+    }
+
+    function renderLinks(jobId) {
+      $("links").hidden = false;
+      const base = `/api/align/${jobId}`;
+      $("links").innerHTML = `
+        <a href="${base}/result.json" target="_blank">result.json</a>
+        <a href="${base}/lyrics.lrc" target="_blank">lyrics.lrc</a>
+        <a href="${base}/lyrics.srt" target="_blank">lyrics.srt</a>
+        <a href="${base}/quality.json" target="_blank">quality.json</a>`;
+    }
+
+    function fmtTime(sec) {
+      if (sec == null || isNaN(sec)) return "—";
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return `${String(m).padStart(2, "0")}:${s.toFixed(2).padStart(5, "0")}`;
+    }
+
+    function buildSyncLines(result) {
+      const items = [];
+      let lastSection = null;
+      for (const line of result.lines || []) {
+        if (line.section && line.section !== lastSection) {
+          lastSection = line.section;
+          items.push({ type: "section", text: line.section });
+        }
+        if (line.instrumental) {
+          items.push({ type: "instrumental", text: line.raw || line.text, start: null, end: null, words: [] });
+          continue;
+        }
+        items.push({
+          type: "line",
+          text: line.text,
+          start: line.start,
+          end: line.end,
+          words: line.words || [],
+        });
+      }
+      return items;
+    }
+
+    function renderWordLine(line) {
+      if (!line.words?.length) return escapeHtml(line.text);
+      return line.words.map((w) =>
+        `<span class="sync-word" data-start="${w.start}" data-end="${w.end}">${escapeHtml(w.text)}</span>`
+      ).join(" ");
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    function initSyncPreview(jobId, result) {
+      syncData = result;
+      syncLines = buildSyncLines(result);
+      const container = $("syncLyrics");
+      container.innerHTML = "";
+
+      let lineIndex = 0;
+      for (const item of syncLines) {
+        const el = document.createElement("div");
+        if (item.type === "section") {
+          el.className = "sync-line section";
+          el.textContent = item.text;
+        } else if (item.type === "instrumental") {
+          el.className = "sync-line instrumental";
+          el.textContent = item.text;
+        } else {
+          el.className = "sync-line" + (item.start == null ? " no-time" : "");
+          el.dataset.index = String(lineIndex++);
+          if (item.start != null) {
+            el.dataset.start = String(item.start);
+            el.dataset.end = String(item.end ?? item.start + 4);
+          }
+          el.innerHTML = item.words?.length ? renderWordLine(item) : escapeHtml(item.text);
+        }
+        container.appendChild(el);
+      }
+
+      const audio = $("syncAudio");
+      audio.src = `/api/align/${jobId}/audio?t=${Date.now()}`;
+      audio.currentTime = 0;
+
+      container.scrollTop = 0;
+      lastScrolledIndex = -1;
+      $("syncPreview").hidden = false;
+
+      audio.onplay = () => tick();
+      audio.onpause = () => { if (rafId) cancelAnimationFrame(rafId); rafId = null; };
+      audio.onseeked = () => {
+        lastScrolledIndex = -1;
+        updateSync(audio.currentTime);
+      };
+      audio.ontimeupdate = () => {
+        if (!rafId) tick();
+      };
+    }
+
+    function tick() {
+      const audio = $("syncAudio");
+      updateSync(audio.currentTime);
+      $("syncClock").textContent = fmtTime(audio.currentTime);
+      if (!audio.paused) rafId = requestAnimationFrame(tick);
+    }
+
+    function updateSync(t) {
+      const wordMode = $("wordMode").checked;
+      const timed = [...document.querySelectorAll(".sync-line[data-start]")];
+      let activeEl = null;
+
+      for (const el of timed) {
+        const start = parseFloat(el.dataset.start);
+        const end = parseFloat(el.dataset.end);
+        el.classList.remove("active", "past", "upcoming");
+
+        if (t < start) {
+          el.classList.add("upcoming");
+        } else if (t >= end) {
+          el.classList.add("past");
+        } else {
+          el.classList.add("active");
+          activeEl = el;
+        }
+
+        if (wordMode && el.classList.contains("active")) {
+          for (const w of el.querySelectorAll(".sync-word")) {
+            const ws = parseFloat(w.dataset.start);
+            const we = parseFloat(w.dataset.end);
+            w.classList.remove("active-word", "past-word");
+            if (t >= we) w.classList.add("past-word");
+            else if (t >= ws) w.classList.add("active-word");
+          }
+        } else {
+          el.querySelectorAll(".sync-word").forEach((w) => {
+            w.classList.remove("active-word", "past-word");
+          });
+        }
+      }
+
+      scrollToActiveLine(activeEl);
+    }
+
+    function scrollToActiveLine(activeEl) {
+      if (!activeEl) return;
+      const box = $("syncLyrics");
+      const idx = activeEl.dataset.index;
+      if (idx != null && Number(idx) === lastScrolledIndex) return;
+
+      const lineRect = activeEl.getBoundingClientRect();
+      const boxRect = box.getBoundingClientRect();
+      const lineCenter = lineRect.top + lineRect.height / 2;
+      const boxCenter = boxRect.top + boxRect.height / 2;
+      const delta = lineCenter - boxCenter;
+
+      if (Math.abs(delta) > 24) {
+        box.scrollTop += delta;
+      }
+      if (idx != null) lastScrolledIndex = Number(idx);
+    }
+
+    function hideSyncPreview() {
+      $("syncPreview").hidden = true;
+      $("syncAudio").pause();
+      $("syncAudio").removeAttribute("src");
+      syncData = null;
+      syncLines = [];
+      lastScrolledIndex = -1;
+    }
+
+    async function poll(jobId) {
+      const res = await fetch(`/api/align/${jobId}`);
+      const job = await res.json();
+      const doneLike = job.status === "done" || job.status === "cached";
+      setStatus(
+        job.status === "cached" ? "готово (из кэша)" : job.status,
+        doneLike ? "done" : job.status === "failed" ? "fail" : ""
+      );
+      renderStages(job.stages);
+      if (job.status === "failed") {
+        $("error").textContent = job.error || "Unknown error";
+        $("runBtn").disabled = false;
+        $("sampleBtn").disabled = false;
+        clearInterval(pollTimer);
+        hideSyncPreview();
+        return;
+      }
+      if (job.status === "cached") {
+        $("warn").hidden = false;
+        $("warn").textContent =
+          "Результат из кэша (тот же файл + текст + настройки). Чтобы пересчитать — измените текст или режим, или удалите папку data/cache.";
+      }
+      if (job.status === "done" || job.status === "cached") {
+        clearInterval(pollTimer);
+        $("runBtn").disabled = false;
+        $("sampleBtn").disabled = false;
+        const r = await fetch(`/api/align/${jobId}/result.json`);
+        const data = await r.json();
+        renderMetrics(data.quality);
+        renderLinks(jobId);
+        const q = data.quality || {};
+        let warnText = data.meta?.separation_warning || "";
+        if (q.percent_aligned_words < 50) {
+          warnText += (warnText ? " " : "") +
+            "Низкое качество слов — на сложных миксах ориентируйтесь на подсветку строк; word-level может быть неточным.";
+        }
+        if (warnText) {
+          $("warn").hidden = false;
+          $("warn").textContent = warnText;
+        } else {
+          $("warn").hidden = true;
+        }
+        $("lrcDetails").hidden = false;
+        $("preview").textContent = await (await fetch(`/api/align/${jobId}/lyrics.lrc`)).text();
+        initSyncPreview(jobId, data);
+        $("error").textContent = "";
+      }
+    }
+
+    async function startJob(url, body = null) {
+      $("error").textContent = "";
+      $("metrics").hidden = true;
+      $("links").hidden = true;
+      $("lrcDetails").hidden = true;
+      hideSyncPreview();
+      $("warn").hidden = true;
+      $("runBtn").disabled = true;
+      $("sampleBtn").disabled = true;
+      setStatus("queued");
+
+      const opts = body
+        ? { method: "POST", body }
+        : {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+              mode: $("mode").value,
+              language: $("language").value,
+              skip_separation: $("skipSep").checked,
+            }),
+          };
+
+      const res = await fetch(url, opts);
+      if (!res.ok) {
+        $("error").textContent = await res.text();
+        $("runBtn").disabled = false;
+        $("sampleBtn").disabled = false;
+        return;
+      }
+      const { job_id } = await res.json();
+      clearInterval(pollTimer);
+      pollTimer = setInterval(() => poll(job_id), 1500);
+      poll(job_id);
+    }
+
+    $("runBtn").addEventListener("click", async () => {
+      const file = $("audio").files[0];
+      const lyrics = $("lyrics").value.trim();
+      if (!file) { $("error").textContent = "Выберите аудиофайл"; return; }
+      if (!lyrics) { $("error").textContent = "Введите текст песни"; return; }
+      const fd = new FormData();
+      fd.append("audio", file);
+      fd.append("lyrics", lyrics);
+      fd.append("mode", $("mode").value);
+      fd.append("language", $("language").value);
+      fd.append("skip_separation", $("skipSep").checked);
+      await startJob("/api/align", fd);
+    });
+
+    $("sampleBtn").addEventListener("click", async () => {
+      await loadSampleLyrics();
+      await startJob("/api/align/sample");
+    });
+
+    $("loadSampleLyrics").addEventListener("click", loadSampleLyrics);
+    $("wordMode").addEventListener("change", () => {
+      if ($("syncAudio").src) updateSync($("syncAudio").currentTime);
+    });
+    loadSampleLyrics();
+
+    fetch("/api/device").then(r => r.json()).then(d => {
+      const el = $("gpuInfo");
+      const dm = d.demucs_models || {};
+      const h = dm.htdemucs?.ready ? "htdemucs ✓" : "htdemucs ✗";
+      const f = dm.htdemucs_ft?.ready ? "HQ ✓" : "HQ ✗ (нужен f7e0c4bc…th)";
+      if (d.device === "cuda") {
+        el.textContent = `GPU: ${d.gpu} (${d.vram_gb} GB) · Demucs: ${h}, ${f}`;
+        el.style.color = "#6ee7b7";
+      } else {
+        el.textContent = `CPU mode · Demucs: ${h}, ${f}`;
+        el.style.color = "#fbbf24";
+      }
+    }).catch(() => {});
+  </script>
+</body>
+</html>
